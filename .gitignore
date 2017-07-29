@@ -1,0 +1,9 @@
+.idea/
+__pycache__/
+
+data/
+*.xlsx
+*.csv
+*.txt
+
+!directors_scraped.txt
