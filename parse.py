@@ -10,7 +10,9 @@ The third file with actual ranks comes from a JS-tool that scrapes director page
 import csv
 import re
 from collections import OrderedDict
-from typing import Callable, Dict, Iterable, List, Mapping, Optional
+from typing import Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional
+
+from unidecode import unidecode
 
 PATH_NEXT1K = 'data/Films-Ranked-1001-2000.csv'
 PATH_YEARLY_TOP25 = 'data/Yearly-Top-25s-GF1000.csv'
@@ -66,24 +68,77 @@ def extract_title(field: str) -> str:
 
 def normalize_directors(s: str) -> str:
     """Restore proper first-last name order and use a uniform separator between multiple names."""
-    def flip(name):
-        return ' '.join(reversed(name.split(', ')))
-
+    flip = lambda name: ' '.join(reversed(name.split(', ')))
     return ' & '.join(map(flip, re.split(' & |/', s)))
+
+
+ARTICLES = ['the', 'a', 'an', 'le', 'la', 'les', 'un', 'une', 'der', 'die', 'das',
+            'il', 'el', 'o', 'os']
+RE_TRAILING_ARTICLES = re.compile(f', (?:{"|".join(ARTICLES)})$')
+RE_BRACKETED_SUFFIX = re.compile(r' \[[^\]]+\]$')
+
+
+def norm_str(s: str) -> str:
+    """Remove diacritics, capitalization, trailing articles and bracketed suffixes from a string."""
+    s = unidecode(s.lower())
+    s = re.sub(RE_BRACKETED_SUFFIX, '', s)
+    s = re.sub(RE_TRAILING_ARTICLES, '', s)
+    return s
+
+
+def title_match(row1: Mapping, row2: Mapping) -> bool:
+    return norm_str(row1['Title']) == norm_str(row2['Title'])
+
+
+def full_match(row1: Mapping, row2: Mapping) -> bool:
+    return (row1['Director'] == row2['Director'] and
+            abs(row1['Year'] - row2['Year']) < 2)
+
+
+def collate(target: List[MutableMapping], source: List[Mapping], keys: List[str]):
+    """Copy selected fields from a list of movies into matching movies in another list.
+    Mutates rows in target."""
+    remaining = target[::]
+    for src_row in source:
+        match = None
+        matches = [r for r in remaining if title_match(r, src_row)]
+        if len(matches) > 1:
+            full_matches = [r for r in matches if full_match(r, src_row)]
+            if len(full_matches) > 1:
+                print('Found several full matches:', src_row, full_matches, sep='\n')
+            elif not full_matches:
+                print("Can't find a full match among matching titles:", src_row, matches, sep='\n')
+            else:
+                match = full_matches[0]
+        elif not matches:
+            print("Can't find this row in target:", src_row, sep='\n')
+        else:
+            match = matches[0]
+
+        if match:
+            remaining.remove(match)
+            for k in keys:
+                match[k] = src_row[k]
+
+    if len(target) - len(remaining) != len(source):
+        raise ValueError("Can't fully collate two sources.")
 
 
 def main():
     next1k = parse_tsv(PATH_NEXT1K, mod_next1k)
-    # pprint(next1k, width=200)
+    assert len(next1k) == 1000
     print(f'Next1k: {len(next1k)}')
 
     dirs = parse_tsv(PATH_DIRECTORS, mod_dirs)
-    # pprint(dirs, width=200)
     print(f'Directors: {len(dirs)}')
 
     yearly = parse_tsv(PATH_YEARLY_TOP25, mod_yearly)
-    # pprint(yearly, width=200)
     print(f'Yearly: {len(yearly)}')
+
+    collate(next1k, dirs, ['Pos'])
+    collate(next1k, yearly, ['Yearly Pos', 'Year'])  # years must match ranks by year
+    assert len(dirs) == sum(1 for row in next1k if 'Pos' in row)
+    assert len(yearly) == sum(1 for row in next1k if 'Yearly Pos' in row)
 
 
 if __name__ == '__main__':
