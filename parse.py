@@ -9,7 +9,7 @@ The third file with actual ranks comes from a JS-tool that scrapes director page
 
 import csv
 import re
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from typing import Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional
 
 from unidecode import unidecode
@@ -44,9 +44,27 @@ def mod_dirs(row: Mapping) -> OrderedDict:
                        **pick(['Title', 'Director'], row))
 
 
+def prepare_yearly_file():
+    """Rewrite the file with yearly Top-25s (groups often have wrong years)."""
+    filler = '\t\t\t\t\t\n'
+    with open(PATH_YEARLY_TOP25, encoding='utf-16') as f:
+        header = f.readline()
+        groups = f.read().split(filler)
+    group_items = lambda g: g.rstrip('\n').split('\n')
+    years_in_group = lambda g: (s[:4] for s in group_items(g))
+    years = [Counter(years_in_group(g)).most_common(1)[0][0] for g in groups]
+    assert len(set(years)) == len(years)
+
+    groups_updated = ('\n'.join(year + s[4:] for s in group_items(g)) + '\n'
+                      for g, year in zip(groups, years))
+    with open(PATH_YEARLY_TOP25, mode='w', encoding='utf-16') as f:
+        f.write(header)
+        f.write(filler.join(groups_updated))
+
+
 def mod_yearly(row: Mapping) -> Optional[OrderedDict]:
     return OrderedDict({
-        'Yearly Pos': int(row['Pos']),
+        'Rank by year': int(row['Pos']),
         'Year': int(row['Year']),
         'Title': extract_title(row['Title/Year/Country/Length/Colour']),
         'Director': normalize_directors(row['Director'])
@@ -132,13 +150,31 @@ def main():
     dirs = parse_tsv(PATH_DIRECTORS, mod_dirs)
     print(f'Directors: {len(dirs)}')
 
+    prepare_yearly_file()
     yearly = parse_tsv(PATH_YEARLY_TOP25, mod_yearly)
     print(f'Yearly: {len(yearly)}')
 
     collate(next1k, dirs, ['Pos'])
-    collate(next1k, yearly, ['Yearly Pos', 'Year'])  # years must match ranks by year
+    collate(next1k, yearly, ['Rank by year', 'Year'])  # years must match ranks by year
     assert len(dirs) == sum(1 for row in next1k if 'Pos' in row)
-    assert len(yearly) == sum(1 for row in next1k if 'Yearly Pos' in row)
+    assert len(yearly) == sum(1 for row in next1k if 'Rank by year' in row)
+
+    # temporary ugliness; should not be necessary after sort.py rework
+    next1k.sort(
+        key=lambda r: f"{r['Year']}_{r.get('Rank by year', 99):0>2}_{r.get('Pos', 9999)}")
+    for i, row in enumerate(next1k, start=1):
+        row['After'] = ''
+        row['Hash'] = i
+        if 'Pos' in row:
+            row['Rank'] = row['Pos']
+
+    with open('input.csv', mode='w', encoding='utf-8') as f:
+        dialect = csv.excel()
+        dialect.lineterminator = '\n'
+        headers = ['Title', 'Year', 'Rank by year', 'Rank', 'Res', 'Hash', 'After']
+        writer = csv.DictWriter(f, headers, restval='-', extrasaction='ignore', dialect=dialect)
+        writer.writeheader()
+        writer.writerows(next1k)
 
 
 if __name__ == '__main__':
