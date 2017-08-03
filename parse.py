@@ -14,6 +14,8 @@ from typing import Callable, Dict, Iterable, List, Mapping, MutableMapping, Opti
 
 from unidecode import unidecode
 
+from moviedata import Movie, MovieList
+
 PATH_NEXT1K = 'data/Films-Ranked-1001-2000.csv'
 PATH_YEARLY_TOP25 = 'data/Yearly-Top-25s-GF1000.csv'
 PATH_DIRECTORS = 'data/directors_scraped.csv'
@@ -142,40 +144,30 @@ def collate(target: List[MutableMapping], source: List[Mapping], keys: List[str]
         raise ValueError("Can't fully collate two sources.")
 
 
-def main():
+def get_final_collated_list() -> MovieList:
+    """Collate all three sources together and convert to a properly structured collection."""
     next1k = parse_tsv(PATH_NEXT1K, mod_next1k)
     assert len(next1k) == 1000
-    print(f'Next1k: {len(next1k)}')
+    print(f'Next1k: {len(next1k)} movies')
 
     dirs = parse_tsv(PATH_DIRECTORS, mod_dirs)
-    print(f'Directors: {len(dirs)}')
+    print(f'Directors: {len(dirs)} movies')
 
     prepare_yearly_file()
     yearly = parse_tsv(PATH_YEARLY_TOP25, mod_yearly)
-    print(f'Yearly: {len(yearly)}')
+    print(f'Yearly: {len(yearly)} movies')
 
     collate(next1k, dirs, ['Pos'])
     collate(next1k, yearly, ['Rank by year', 'Year'])  # years must match ranks by year
     assert len(dirs) == sum(1 for row in next1k if 'Pos' in row)
     assert len(yearly) == sum(1 for row in next1k if 'Rank by year' in row)
 
-    # temporary ugliness; should not be necessary after sort.py rework
-    next1k.sort(
-        key=lambda r: f"{r['Year']}_{r.get('Rank by year', 99):0>2}_{r.get('Pos', 9999)}")
-    for i, row in enumerate(next1k, start=1):
-        row['After'] = ''
-        row['Hash'] = i
-        if 'Pos' in row:
-            row['Rank'] = row['Pos']
-
-    with open('input.csv', mode='w', encoding='utf-8') as f:
-        dialect = csv.excel()
-        dialect.lineterminator = '\n'
-        headers = ['Title', 'Year', 'Rank by year', 'Rank', 'Res', 'Hash', 'After']
-        writer = csv.DictWriter(f, headers, restval='-', extrasaction='ignore', dialect=dialect)
-        writer.writeheader()
-        writer.writerows(next1k)
+    mlist = MovieList(Movie(title=row['Title'], year=row['Year'], rby=row.get('Rank by year'),
+                            rank=row.get('Pos')) for row in next1k)
+    mlist.sort()
+    return mlist
 
 
 if __name__ == '__main__':
-    main()
+    mlist_ = get_final_collated_list()
+    mlist_.write_to_file('input.csv')
