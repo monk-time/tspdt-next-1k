@@ -146,6 +146,7 @@ def collate(target: List[MutableMapping], source: List[Mapping], keys: List[str]
 
 def get_final_collated_list() -> MovieList:
     """Collate all three sources together and convert to a properly structured collection."""
+    print('Parsing lists from TSPDT...')
     next1k = parse_tsv(PATH_NEXT1K, mod_next1k)
     assert len(next1k) == 1000
     print(f'Next1k: {len(next1k)} movies')
@@ -164,7 +165,6 @@ def get_final_collated_list() -> MovieList:
 
     mlist = MovieList(Movie(title=row['Title'], year=row['Year'], rby=row.get('Rank by year'),
                             rank=row.get('Pos')) for row in next1k)
-    mlist.sort()
     return mlist
 
 

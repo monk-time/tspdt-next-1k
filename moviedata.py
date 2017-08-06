@@ -1,9 +1,10 @@
 import csv
+import inspect
 import random
 from collections import OrderedDict
 from itertools import permutations
 from string import ascii_lowercase
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 
 def unique_ids():
@@ -16,51 +17,76 @@ def unique_ids():
 
 
 class Movie:
-    __free_ids = unique_ids()
+    _free_ids = unique_ids()
 
     def __init__(self, title: str, year: int,
                  rby: Optional[int] = None, rank: Optional[int] = None):
         self.title = title
+        if not isinstance(year, int):
+            raise ValueError(f'Year ({year}) for "{title}" must be an integer')
         self.year = year
+        if rby is not None and not 1 <= rby <= 25:
+            raise ValueError(f'Invalid rank by year ({rby}) for "{title}" ({year})')
         self.rby = rby  # rank by year
+        if rank is not None and not 1001 <= rank <= 2000:
+            raise ValueError(f'Invalid rank ({rank}) for "{title}" ({year})')
         self.rank = rank
         # the following fields can only get default values during initialization
-        self.id = self.__free_ids.pop()
+        self.id = self._free_ids.pop()
         self.res: Optional[int] = None
         self.after = []
-
-    def __str__(self):
-        return f'#{self.id}: [{self.rby or "-":>2}, @{self.rank or "----"}, {self.after!s:<10}] ' \
-               f'{self.year} - {self.title}'
 
     @property
     def ranked(self) -> bool:
         return self.rank is not None
 
+    def __str__(self):
+        return f'#{self.id}: [{self.rby or "-":>2}, @{self.rank or "----"}, {self.after!s:<10}] ' \
+               f'{self.year} - {self.title}'
+
     def compact(self):
         """A short string representation of the movie."""
         return f'#{self.id} @{self.rank or "----"}'
 
-
-class MovieList:
     attr_to_field_map = OrderedDict(title='Title', year='Year', rby='Rank by year', rank='Rank',
                                     res='Res', id='Hash', after='After')
+    # keys that can be used for constructing a Movie instance
+    allowed_attrs: List[str] = inspect.getfullargspec(__init__).args[1:]
 
-    @classmethod
-    def form_row(cls, m: Movie):
+    def form_row(self):
         """Prepare a movie for writing to a .csv file, preserving a proper field order.
         Missing or falsy attributes are converted to '-'."""
-        return [getattr(m, k) or '-' for k in cls.attr_to_field_map.keys()]
+        return [getattr(self, k) or '-' for k in self.attr_to_field_map.keys()]
 
+    @classmethod
+    def from_row(cls, row: Iterable[str]):
+        """Reversed form_row: create a movie from a .csv row,
+        using only fields that can be used for constructing a Movie instance."""
+        kwargs = {k: v for k, v in zip(cls.attr_to_field_map.keys(), row)
+                  if k in cls.allowed_attrs}
+        for k in ['year', 'rby', 'rank']:
+            kwargs[k] = int(kwargs[k]) if kwargs[k] != '-' else None
+        return cls(**kwargs)
+
+
+class MovieList:
     def __init__(self, it: Iterable[Movie]):
         self.movies = list(it)
-
-    def write_to_file(self, path: str):
-        with open(path, mode='w', encoding='utf-8') as f:
-            writer = csv.writer(f, dialect=csv.excel(), lineterminator='\n')
-            writer.writerow(self.attr_to_field_map.values())
-            writer.writerows(map(self.form_row, self.movies))
+        self.sort()
 
     def sort(self):
         self.movies.sort(
             key=lambda m: (m.res or 1001, m.year, m.rby or 99, m.rank or 9999))
+
+    def write_to_file(self, path: str):
+        with open(path, mode='w', encoding='utf-8') as f:
+            writer = csv.writer(f, dialect=csv.excel(), lineterminator='\n')
+            writer.writerow(Movie.attr_to_field_map.values())
+            writer.writerows(m.form_row() for m in self.movies)
+
+    @classmethod
+    def read_from_file(cls, path: str):
+        with open(path, encoding='utf-8') as f:
+            reader = csv.reader(f, dialect=csv.excel(), lineterminator='\n')
+            next(reader)  # skip header
+            return cls(map(Movie.from_row, reader))
