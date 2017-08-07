@@ -1,222 +1,149 @@
-﻿import csv
-from collections import OrderedDict
+﻿import itertools
 from functools import reduce
-from itertools import groupby, tee
-from operator import itemgetter
+from operator import attrgetter
+from typing import Dict, Iterable, Iterator, List, Set, Tuple, TypeVar
 
-from lib.toposort import toposort
+from toposort import toposort
+
+from moviedata import Movie, MovieList
+
+T = TypeVar('T')
 
 
-# modified itertools recipe for pairwise: s -> (s0,s1), (s1,s2), (s2, s3), ...
-def pairwise(iterable, n=2):
-    iters = tee(iterable, n)
-    for i in range(1, n):
-        for _ in range(i):
-            next(iters[i], None)
+def window(it: Iterable[T], size: int = 2) -> Iterator[Tuple[T, ...]]:
+    """Get rolling windows of a given size from an iterable.
+
+    Example: window(range(4), 2) == [(0, 1), (1, 2), (2, 3)]"""
+    # noinspection PyArgumentEqualDefault
+    iters = [itertools.islice(it, i, None) for i in range(size)]
     return zip(*iters)
 
 
-def parse(filename="input.csv"):
-    with open(filename, encoding="utf-8", newline='') as f:
-        header = next(csv.reader(f))  # keeps header sorted
-        f.seek(0)  # DictReader needs header for keys
-        rows = list(csv.DictReader(f))
-        return {'header': header, 'rows': rows}
+def consecutive_runs(it: Iterable[int]) -> List[List[int]]:
+    """Split an array into groups of consecutive increasing values in it.
+
+    Example: consecutive_runs([2, 3, 4, 7, 12, 13]) == [[2, 3, 4], [7], [12, 13]]"""
+    groups = itertools.groupby(enumerate(it), lambda ix: ix[0] - ix[1])
+    return [[x for _, x in g] for _, g in groups]
 
 
-def output(table, filename="output.csv"):
-    with open(filename, mode='w', encoding="utf-8", newline='') as f:
-        dialect = csv.excel()
-        dialect.lineterminator = '\n'
-        writer = csv.DictWriter(f, table['header'], extrasaction='ignore', dialect=dialect)
-        writer.writeheader()
-        writer.writerows(table['rows'])
-
-
-def has_rank(r):
-    return r['Rank'] != '-'
-
-
-def row_to_str(r):
-    s = '{0:>4}: [{1:>2}, {2:>4}, {3!s:<10}] {4} - {5}'.format(
-        r['Hash'], r['Rank by year'], r['Rank'], r['After'], r['Year'], r['Title'])
-    return s
-
-
-def compact_row(r):
-    return '#{0:3} @{1:4}'.format(r['Hash'], r['Rank'])
-
-
-def preview_rows(rows, header=None):
-    if header:
-        print(header)
-    for r in rows:
-        print(row_to_str(r))
-
-
-def preview_dict(rows_by_year):
-    for year, rows in rows_by_year.items():
-        print('>{0}:'.format(year))
-        preview_rows(rows)
-
-
-def grouped_dict(arr, key):
-    by_key = groupby(arr, key)
-    return OrderedDict((k, list(vs)) for k, vs in by_key)
-
-
-# [2, 3, 4, 7, 12, 13] -> [[2, 3, 4], [7], [12, 13]]
-def consecutive_runs(num_arr):
-    groups = groupby(enumerate(num_arr), lambda ix: ix[0] - ix[1])
-    return [[ix[1] for ix in g] for _, g in groups]
-
-
-# finds the first row with field=value
-def row_by_field(rows, field, value):
-    res = next(r for r in rows if field in r and r[field] == value)
+def get_by_attr(objects: Iterable[T], attr: str, value) -> T:
+    """Find the first object with a given attribute set to value."""
+    res = next(o for o in objects if hasattr(o, attr) and getattr(o, attr) == value)
     if res is not None:
         return res
     else:
-        raise Exception('No row with {0}={1}'.format(field, value))
+        raise Exception(f'None of the given objects have {attr} set to {value}')
 
 
-# if you need to insert #15 after #10, and ranks #11-#13 are already used,
-# use this to get a function to convert row #10 to #13
-def max_ranked_after_factory(rows):
-    ranks = sorted(int(r['Rank']) for r in rows if has_rank(r))
+def max_ranked_after_factory(movies: Iterable[Movie]):
+    ranks: List[int] = sorted(m.rank for m in movies if m.rank)
     runs = consecutive_runs(ranks)
 
-    def mra(row, guard):
-        # should adjust only ranked rows 
-        # and only when inserting rankless rows after them 
-        if not has_rank(row) or has_rank(guard):
-            return row
-        rank = int(row['Rank'])
+    def max_ranked_after(m: Movie) -> Movie:
+        """Get the last movie in a run of consecutively ranked movies that has the given movie.
+
+        Example: if there are movies with ranks #10-13, this will return #13 for any of them."""
+        if not m.rank:
+            return m
         for run in runs:
-            if rank in run:
-                if rank != run[-1]:
-                    # print('Adjusted #{0} to #{1} from run {2}'.format(rank, run[-1], run))
-                    pass
-                else:  # no adjustment needed
-                    return row
-                # return row with rank=run[-1]
-                return row_by_field(rows, 'Rank', str(run[-1]))
-        else:
-            raise Exception('Couldn\'t find a rank in a list of ranks (sic)')
+            if m.rank in run:
+                if m.rank == run[-1]:  # m is the end of the run, no adjustment needed
+                    return m
+                return get_by_attr(movies, 'rank', run[-1])
+        raise Exception(f"Can't find rank {m.rank} in a list of all ranks, this can't happen")
 
-    return mra
+    return max_ranked_after
 
 
-def set_after(r, antecedent):
-    ante_index = int(antecedent['Hash'])
-    if not r['After']:
-        r['After'] = [ante_index]
-        r['AfterRows'] = [antecedent]
-    else:
-        if ante_index not in r['After']:
-            r['After'].append(ante_index)
-            r['AfterRows'].append(antecedent)
+def set_lower_bounds_by_year(movies: Iterable[Movie]):
+    """Set which movie goes after which based on yearly top-25s.
 
+    Relies on MovieList being sorted by year, then by rby.
+    Movies without rby should appear only after those with rby."""
+    movies_by_year: Iterable[Tuple[int, Iterable[Movie]]] = \
+        itertools.groupby(movies, attrgetter('year'))
+    max_ranked_after = max_ranked_after_factory(movies)
 
-def get_after(r):
-    return r.get('AfterRows', [])
-
-
-def compute_edges_by_year(rows):
-    rows_by_year = grouped_dict(rows, itemgetter('Year'))
-    max_ranked_after = max_ranked_after_factory(rows)
-
-    for year, rows in rows_by_year.items():
-        prev, seen_dash = None, False
-        for r in rows:
-            rby = r['Rank by year']
-            if rby != '-':
-                rby = int(rby)
-                if rby <= 0:
-                    raise Exception('rby should be positive; at:\n{0}'.format(row_to_str(r)))
-                # dashes can appear only after all numbers
-                if not seen_dash and (not prev or rby == int(prev['Rank by year']) + 1):
-                    # both are consecutive numbers
-                    if prev:  # == not the first in rows
-                        set_after(r, max_ranked_after(prev, guard=r))
-                    prev = r
-                else:
-                    raise Exception('Wrong rby ({0}) at:\n{1}'.format(rby, row_to_str(r)))
+    for year, mvs in movies_by_year:
+        prev, seen_missing_rby = None, False
+        for m in mvs:
+            # if both have ranks, bounds will be set in another function
+            if prev and not (m.rank and prev.rank):
+                m.set_after(max_ranked_after(prev))
+            if m.rby:
+                if seen_missing_rby or (prev and m.rby != prev.rby + 1):
+                    raise ValueError(f'Rank by year conflicts with other movies:\n{m}')
+                prev = m
             else:
-                seen_dash = True
-                if prev:  # only after encountering a row with rby
-                    set_after(r, max_ranked_after(prev, guard=r))
+                seen_missing_rby = True
 
 
-def compute_edges_by_rank(rows):
-    with_rank = (r for r in rows if has_rank(r))
-    rows_by_rank = sorted(with_rank, key=itemgetter('Rank'))
-    for r1, r2 in pairwise(rows_by_rank):
-        set_after(r2, r1)
+def set_lower_bounds_by_rank(movies: Iterable[Movie]):
+    """Chain all ranked movies after each other."""
+    ranked = sorted((m for m in movies if m.rank), key=attrgetter('rank'))
+    for m1, m2 in window(ranked):
+        m2.set_after(m1)
 
 
-def remove_extra_afters(rows):
+# TODO: set_lower_bound_by_year rework seems to have made this unnecessary?
+def remove_redundant_bounds(movies: Iterable[Movie]):
     adjusted = 0
-    for r in rows:
-        ranked_prev_rows = list(filter(has_rank, get_after(r)))
-        if len(ranked_prev_rows) > 1:  # exclude trivial cases
-            before_closest = sorted(ranked_prev_rows, key=lambda x: int(x['Rank']))[:-1]
-            # print('#{0} is after: {1} -> '.format(r['Hash'],
-            #     ', '.join([compact_row(a) for a in get_after(r)])), end='')
-            r['AfterRows'] = [r2 for r2 in get_after(r) if r2 not in before_closest]
-            r['After'] = [int(r2['Hash']) for r2 in r['AfterRows']]
-            # print(r['After'])
+    for m in movies:
+        after_ranked = [m_ for m_ in m.after if m_.rank]
+        if len(after_ranked) > 1:  # exclude trivial cases
+            print(f'#{m.id} is after: {", ".join(m_.compact() for m_ in m.after)} -> ', end='')
+            closest_after = sorted(after_ranked, key=lambda x: x.rank)[:-1]
+            m.after = [m_ for m_ in m.after if m_ not in closest_after]
+            print(m.after_ids)
             adjusted += 1
-    print('Removed extra afters in {0} items'.format(adjusted))
+    print(f'{adjusted} movies had redundant lower bounds removed')
 
 
-# Vertices are 1-based indexes
-def get_graph(rows):
-    # toposort needs sets, but lists were more useful for testing
-    return {int(r['Hash']): set(r['After']) for r in rows if r['After']}
+def get_id_graph(movies: Iterable[Movie]) -> Dict[str, Set[str]]:
+    # toposort requires sets
+    return {m.id: set(m.after_ids) for m in movies if m.after}
 
 
-def set_approx_pos(rows):
-    i = 1
-    for same_pos in toposort(get_graph(rows)):
-        for index in same_pos:
-            rows[index - 1]['Res'] = i
-        i += 1
-    print(str(i - 1) + ' groups in the graph (more = better)')
+def set_approx_pos(movies: Iterable[Movie]):
+    for i, same_pos in enumerate(toposort(get_id_graph(movies)), start=1):
+        for m_id in same_pos:
+            get_by_attr(movies, 'id', m_id).res = i
+    print(f'{i} groups in the graph (more = better)')
 
 
-def shift_rows_with_no_upper_limit(rows):
+def shift_down_movies_with_no_upper_bound(movies: Iterable[Movie]):
     # all rows that are mentioned in 'After' fields
-    have_upper_limit = set(n for r in rows if r['After'] for n in r['After'])
+    have_upper_limit = set(m_ for m in movies if m.after for m_ in m.after)
     # the rest
-    no_upper_limit = (r for r in rows if int(r['Hash']) not in have_upper_limit)
+    no_upper_limit = (m for m in movies if m not in have_upper_limit)
     adjusted = 0
-    for r in no_upper_limit:
-        if r['Res'] != '-' and not has_rank(r):
-            r['Res'] += 1000
-        adjusted += 1
-    print('{0} items have no upper limit'.format(adjusted))
+    for m in no_upper_limit:
+        if m.res and not m.rank:
+            m.res += 1000
+            adjusted += 1
+    print(f'{adjusted} unranked movies have no upper limit')
 
 
 # returns chains of unranked rows between ranked
-def get_chains(rows):
-    chains = ([r] for r in rows if has_rank(r) and r['After'])
+def get_chains(movies: Iterable[Movie]):
+    chains = ([m] for m in movies if m.rank and m.after)
     good_chains = []
     for chain in chains:
         head = chain[0]
         found_chain_end, nontrivial = False, False
-        # print(row_to_str(head))
+        # print(head)
         while not found_chain_end:
             # print(head)
-            unranked_prev = [r for r in get_after(head) if not has_rank(r)]
-            ranked_prev = [r for r in get_after(head) if has_rank(r)]
+            unranked_prev = [m for m in head.after if not m.rank]
+            ranked_prev = [m for m in head.after if m.rank]
             nontrivial |= len(unranked_prev) > 0  # turns to True only once
             prevs = unranked_prev or ranked_prev
             if prevs:
                 assert len(prevs) == 1
                 head = prevs[0]
                 chain.append(head)
-                found_chain_end = has_rank(head)
+                found_chain_end = bool(head.rank)
             else:
                 break
         else:  # no break, ended on a ranked row
@@ -229,7 +156,7 @@ def process_chains(chains):
     # if two chains differ only in the last item, leave the shortest
     def only_shortest(acc, chain):
         def head_rank(ch):
-            return int(ch[-1]['Rank'])
+            return ch[-1].rank
 
         if not acc:
             return [chain]
@@ -246,37 +173,34 @@ def process_chains(chains):
 
     # source sorting by year -> by rby ensures that reduce will work
     chains = reduce(only_shortest, chains, [])
-    # chains.sort(key=lambda x: x[0]['Rank'])
+    # chains.sort(key=lambda x: x[0].rank)
     chains.sort(key=len, reverse=True)
-    chains.sort(key=lambda x: int(x[-1]['Rank']) - int(x[0]['Rank']))
+    chains.sort(key=lambda x: x[-1].rank - x[0].rank)
+    print(f'\n{len(chains)} chains:')
     for a_chain in chains:
-        print(' —→ '.join(compact_row(r) for r in a_chain))
-    print(len(chains), 'chains')
+        print(' —→ '.join(m.compact() for m in a_chain))
 
 
-def no_info_count(rows):
-    no_info = (r for r in rows if not r['After'] and not has_rank(r))
-    return sum(1 for _ in no_info)
+def process_all(gen_chains=True):
+    # mlist = get_final_collated_list()
+    mlist = MovieList.read_from_file('input.csv')
+    print(f'{mlist.count_ranked()} movies are ranked')
 
+    set_lower_bounds_by_year(mlist.movies)
+    set_lower_bounds_by_rank(mlist.movies)
+    remove_redundant_bounds(mlist.movies)
 
-def process_table(gen_chains=True):
-    table = parse()
-    rows = table['rows']
-    print('{} ranked rows'.format(sum(1 for _ in filter(has_rank, rows))))
-
-    compute_edges_by_year(rows)
-    compute_edges_by_rank(rows)
-    remove_extra_afters(rows)
-
-    set_approx_pos(rows)
-    shift_rows_with_no_upper_limit(rows)
-    print('{0} items have no info'.format(no_info_count(rows)))
+    set_approx_pos(mlist.movies)
+    shift_down_movies_with_no_upper_bound(mlist.movies)
+    print(f'{mlist.count_no_info()} items have no ranks and no lower bounds')
     if gen_chains:
-        process_chains(get_chains(rows))
+        process_chains(get_chains(mlist.movies))
 
-    output(table)
-    return table
+    mlist.sort()
+    mlist.write_to_file('output.csv')
+    return mlist
 
 
 if __name__ == '__main__':
-    process_table()
+    process_all()
+    # TODO: don't assume anything about movies not in yearly tops (years have lots of mistakes)

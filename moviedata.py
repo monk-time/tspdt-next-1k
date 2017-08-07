@@ -27,29 +27,34 @@ class Movie:
         self.year = year
         if rby is not None and not 1 <= rby <= 25:
             raise ValueError(f'Invalid rank by year ({rby}) for "{title}" ({year})')
-        self.rby = rby  # rank by year
+        self.rby: Optional[int] = rby  # rank by year
         if rank is not None and not 1001 <= rank <= 2000:
             raise ValueError(f'Invalid rank ({rank}) for "{title}" ({year})')
-        self.rank = rank
+        self.rank: Optional[int] = rank
         # the following fields can only get default values during initialization
-        self.id = self._free_ids.pop()
+        self.id: str = self._free_ids.pop()
         self.res: Optional[int] = None
-        self.after = []
+        self.after: List[Movie] = []
 
     @property
-    def ranked(self) -> bool:
-        return self.rank is not None
+    def after_ids(self) -> List[str]:
+        return [m.id for m in self.after]
 
     def __str__(self):
-        return f'#{self.id}: [{self.rby or "-":>2}, @{self.rank or "----"}, {self.after!s:<10}] ' \
+        return f'#{self.id}: ' \
+               f'[{self.rby or "-":>2}, @{self.rank or "----"}, {self.after_ids!s:<10}] ' \
                f'{self.year} - {self.title}'
 
     def compact(self):
         """A short string representation of the movie."""
         return f'#{self.id} @{self.rank or "----"}'
 
+    def set_after(self, antecedent: 'Movie'):
+        if antecedent not in self.after:
+            self.after.append(antecedent)
+
     attr_to_field_map = OrderedDict(title='Title', year='Year', rby='Rank by year', rank='Rank',
-                                    res='Res', id='Hash', after='After')
+                                    res='Res', id='Hash', after_ids='After')
     # keys that can be used for constructing a Movie instance
     allowed_attrs: List[str] = inspect.getfullargspec(__init__).args[1:]
 
@@ -90,3 +95,10 @@ class MovieList:
             reader = csv.reader(f, dialect=csv.excel(), lineterminator='\n')
             next(reader)  # skip header
             return cls(map(Movie.from_row, reader))
+
+    def count_ranked(self):
+        return sum(1 for m in self.movies if m.rank)
+
+    def count_no_info(self):
+        no_info = (m for m in self.movies if not m.after and not m.rank)
+        return sum(1 for _ in no_info)
