@@ -1,7 +1,7 @@
 ﻿import itertools
 from functools import partial
-from operator import attrgetter
-from typing import Iterable, Iterator, List, Tuple, TypeVar
+from operator import attrgetter, itemgetter
+from typing import Callable, Iterable, Iterator, List, Tuple, TypeVar
 
 from moviedata import Movie, MovieList
 
@@ -82,35 +82,43 @@ def set_bounds_by_year(movies: Iterable[Movie]):
                 seen_missing_rby = True
 
 
-def calculate_ranges(movies: Iterable[Movie]):
+def rec_traversal_factory(direction: str, f: Callable, diff: int, extreme: int):
+    def traverse(m: Movie):
+        chain, bounds = getattr(m, direction)[:], []
+        while chain:
+            m_ = chain.pop()
+            if m_.rank:
+                bounds.append(m_.rank + diff)
+            else:
+                chain.extend(getattr(m_, direction))
+        return f(bounds, default=extreme)
+
+    return traverse
+
+
+def calculate_ranges(mlist: MovieList):
     """Determine places that each unranked movie may have by traversing their neighbors recursively
     until a ranked one is found."""
-    for m in movies:
-        rec_after, lower_bounds = m.after[:], []
-        while rec_after:
-            m_ = rec_after.pop()
-            if m_.rank:
-                lower_bounds.append(m_.rank + 1)
-            else:
-                rec_after.extend(m_.after)
-        lower = max(lower_bounds, default=1001)
-
-        rec_before, upper_bounds = m.before[:], []
-        while rec_before:
-            m_ = rec_before.pop()
-            if m_.rank:
-                upper_bounds.append(m_.rank - 1)
-            else:
-                rec_before.extend(m_.before)
-        upper = min(upper_bounds, default=2000)
-
-        m.range = (lower, upper)
+    min_free_rank = next(r for r in range(1001, 2001) if r not in mlist.ranks)
+    max_free_rank = next(r for r in range(2000, 1000, -1) if r not in mlist.ranks)
+    min_possible_rank = rec_traversal_factory('after', max, 1, min_free_rank)
+    max_possible_rank = rec_traversal_factory('before', min, -1, max_free_rank)
+    for m in mlist.unranked:
+        # TODO: account for chains
+        m.range = (min_possible_rank(m), max_possible_rank(m))
 
 
-def find_shortest_ranges(movies: Iterable[Movie]):
-    print('\nShortest possible ranges (inclusive) for unranked movies:')
-    for m in sorted(movies, key=lambda m: m.range[1] - m.range[0])[:5]:
-        print(f'{m.range[1] - m.range[0]:3} {m.range} | {m}')
+def count_in_range(it: Iterable[int], min_value: int, max_value: int) -> int:
+    """Count how many numbers in an iterable are between given values (exclusive)."""
+    return sum(1 for _ in (n for n in it if min_value < n < max_value))
+
+
+def find_shortest_ranges(mlist):
+    print('\nUnranked movies sorted by the number of possible ranks they may have:')
+    num_choices = [m.range[1] - m.range[0] + 1 - count_in_range(mlist.ranks, *m.range)
+                   for m in mlist.unranked]
+    for n, m in sorted(zip(num_choices, mlist.unranked), key=itemgetter(0))[:5]:
+        print(f'{n:3} {m.range} | {m}')
 
 
 def process_all():
@@ -119,8 +127,8 @@ def process_all():
     print(f'{mlist.count_ranked()} movies are ranked')
 
     set_bounds_by_year(mlist.movies)
-    calculate_ranges(mlist.unranked)
-    find_shortest_ranges(mlist.unranked)
+    calculate_ranges(mlist)
+    find_shortest_ranges(mlist)
 
     mlist.write_to_file('output.csv')
 

@@ -89,6 +89,7 @@ class MovieList:
         self.movies = list(it)
         self.sort()
         self.unranked = [m for m in self.movies if not m.rank]
+        self.ranks = sorted(m.rank for m in self.movies if m.rank)
 
     def sort(self):
         self.movies.sort(
