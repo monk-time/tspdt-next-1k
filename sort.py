@@ -34,6 +34,11 @@ def get_by_attr(objects: Iterable[T], attr: str, value) -> T:
         raise Exception(f'None of the given objects have {attr} set to {value}')
 
 
+def count_in_range(it: Iterable[int], min_value: int, max_value: int) -> int:
+    """Count how many numbers in an iterable are between given values (inclusive)."""
+    return sum(1 for _ in (n for n in it if min_value <= n <= max_value))
+
+
 def minmax_conseq_ranked_near_factory(movies: Iterable[Movie]):
     ranks: List[int] = sorted(m.rank for m in movies if m.rank)
     runs = consecutive_runs(ranks)
@@ -84,13 +89,17 @@ def set_bounds_by_year(movies: Iterable[Movie]):
 
 def rec_traversal_factory(direction: str, f: Callable, diff: int, extreme: int):
     def traverse(m: Movie):
-        chain, bounds = getattr(m, direction)[:], []
-        while chain:
-            m_ = chain.pop()
-            if m_.rank:
-                bounds.append(m_.rank + diff)
-            else:
-                chain.extend(getattr(m_, direction))
+        neighbors, bounds, depth = getattr(m, direction)[:], [], 0
+        while neighbors:  # breadth-first search
+            deeper_neighbors = []
+            for n in neighbors:
+                if n.rank:
+                    # all items in a chain of unranked movies should be able to fit
+                    bounds.append(n.rank + diff + diff * depth)
+                else:
+                    deeper_neighbors.extend(getattr(n, direction))
+            neighbors = deeper_neighbors
+            depth += 1
         return f(bounds, default=extreme)
 
     return traverse
@@ -101,23 +110,17 @@ def calculate_ranges(mlist: MovieList):
     until a ranked one is found."""
     min_free_rank = next(r for r in range(1001, 2001) if r not in mlist.ranks)
     max_free_rank = next(r for r in range(2000, 1000, -1) if r not in mlist.ranks)
-    min_possible_rank = rec_traversal_factory('after', max, 1, min_free_rank)
-    max_possible_rank = rec_traversal_factory('before', min, -1, max_free_rank)
+    find_min_possible_rank = rec_traversal_factory('after', max, 1, min_free_rank)
+    find_max_possible_rank = rec_traversal_factory('before', min, -1, max_free_rank)
     for m in mlist.unranked:
-        # TODO: account for chains
-        m.range = (min_possible_rank(m), max_possible_rank(m))
+        m.range = (find_min_possible_rank(m), find_max_possible_rank(m))
 
 
-def count_in_range(it: Iterable[int], min_value: int, max_value: int) -> int:
-    """Count how many numbers in an iterable are between given values (exclusive)."""
-    return sum(1 for _ in (n for n in it if min_value < n < max_value))
-
-
-def find_shortest_ranges(mlist):
+def find_shortest_ranges(mlist: MovieList, limit: int = 5):
     print('\nUnranked movies sorted by the number of possible ranks they may have:')
     num_choices = [m.range[1] - m.range[0] + 1 - count_in_range(mlist.ranks, *m.range)
                    for m in mlist.unranked]
-    for n, m in sorted(zip(num_choices, mlist.unranked), key=itemgetter(0))[:5]:
+    for n, m in sorted(zip(num_choices, mlist.unranked), key=itemgetter(0))[:limit]:
         print(f'{n:3} {m.range} | {m}')
 
 
