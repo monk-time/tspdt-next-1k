@@ -1,9 +1,9 @@
 """Use this for collating the data from three different places on TSPDT.
 
-All tables must be converted to .csv manually before use:
+All tables must be converted to .tsv manually before use:
 in Excel click 'Save as -> Unicode Text (.txt)' (tab-separated, UTF16-LE),
 that's the only way to preserve unicode chars in Excel.
-Rename files to .csv after exporting.
+Rename files to .tsv after exporting.
 
 The third file with actual ranks comes from a JS-tool that scrapes director pages."""
 
@@ -16,13 +16,13 @@ from unidecode import unidecode
 
 from moviedata import Movie, MovieList
 
-PATH_NEXT1K = 'data/Films-Ranked-1001-2000.csv'
-PATH_YEARLY_TOP25 = 'data/Yearly-Top-25s-GF1000.csv'
-PATH_DIRECTORS = 'data/directors_scraped.csv'
+PATH_NEXT1K = 'data/Films-Ranked-1001-2000.tsv'
+PATH_YEARLY_TOP25 = 'data/Yearly-Top-25s-GF1000.tsv'
+PATH_DIRECTORS = 'data/directors_scraped.tsv'
 
 
 def parse_tsv(filename: str, row_modifier: Callable) -> List[Dict]:
-    """Open a .csv file exported from Excel, applying a modifier function to each row.
+    """Open a .tsv file exported from Excel, applying a modifier function to each row.
     Falsy rows are skipped."""
     with open(filename, encoding='utf-16') as f:
         rows = list(filter(None, map(row_modifier, csv.DictReader(f, dialect='excel-tab'))))
