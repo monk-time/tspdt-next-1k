@@ -138,4 +138,4 @@ def process_all():
 
 if __name__ == '__main__':
     process_all()
-    # TODO: don't assume anything about movies not in yearly tops (years have lots of mistakes)
+    # TODO: don't assume anything about movies not in yearly tops (years might have mistakes)
