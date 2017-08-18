@@ -13,3 +13,5 @@ Data sources:
 2. Use `scrape_directors.js` in the browser console to get the third data source, save the output to `data/directors_scraped.tsv`.
 3. Run `parse.py` to collate data sources to a single file.
 4. Run `sort.py` to find unranked candidates with the fewest possible ranks.
+
+If you want to skip straight to the result, here's [a sample output](https://gist.github.com/monk-time/951a74705ac581b07d3e31b76a1cf1db), make sure to scroll to the 'Range' column.
