@@ -1,4 +1,5 @@
 ﻿import itertools
+from collections import Counter
 from functools import partial
 from operator import attrgetter, itemgetter
 from typing import Callable, Iterable, Iterator, List, Tuple, TypeVar
@@ -117,11 +118,22 @@ def calculate_ranges(mlist: MovieList):
 
 
 def find_shortest_ranges(mlist: MovieList, limit: int = 5):
-    print('\nUnranked movies sorted by the number of possible ranks they may have:')
+    print('\nUnranked movies with the fewest possible ranks:')
     num_choices = [m.range[1] - m.range[0] + 1 - count_in_range(mlist.ranks, *m.range)
                    for m in mlist.unranked]
     for n, m in sorted(zip(num_choices, mlist.unranked), key=itemgetter(0))[:limit]:
         print(f'{n:3} {m.range} | {m}')
+
+
+def least_crowded_free_ranks(mlist: MovieList):
+    print('\nUnfilled ranks that have the fewest candidates for them:')
+    all_possible_pos = (r for m in mlist.unranked
+                        for r in range(m.range[0], m.range[1] + 1)
+                        if r not in mlist.ranks)
+    candidate_counter = Counter(all_possible_pos)
+    assert len(candidate_counter) == 1000 - len(mlist.ranks)
+    tail = candidate_counter.most_common()[:-6:-1]
+    print('\n'.join(f'{num:3} movies for @{rank}' for rank, num in tail))
 
 
 def process_all():
@@ -132,6 +144,7 @@ def process_all():
     set_bounds_by_year(mlist.movies)
     calculate_ranges(mlist)
     find_shortest_ranges(mlist)
+    least_crowded_free_ranks(mlist)
 
     mlist.write_to_file('output.csv')
 
