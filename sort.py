@@ -40,7 +40,8 @@ def count_in_range(it: Iterable[int], min_value: int, max_value: int) -> int:
     return sum(1 for _ in (n for n in it if min_value <= n <= max_value))
 
 
-def minmax_conseq_ranked_near_factory(movies: Iterable[Movie]):
+def minmax_conseq_ranked_near_factory(movies: Iterable[Movie]) \
+        -> Tuple[Callable[[Movie], Movie], ...]:
     ranks: List[int] = sorted(m.rank for m in movies if m.rank)
     runs = consecutive_runs(ranks)
 

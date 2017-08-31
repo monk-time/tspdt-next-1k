@@ -1,7 +1,8 @@
 // Run the script from http://www.theyshootpictures.com/directors.htm
-{
-    'use strict';
 
+'use strict';
+
+{
     // Some pages have mismatching "Acclaimed Films" links
     const urlErrorsMap = {
         'kieslowskikrszystof.htm': 'kieslowskikrzysztof.php',
@@ -9,9 +10,9 @@
         'sturgesjohn.htm': 'page/sturgesjohn.php',
     };
 
-    const getFilmographyUrl = url => urlErrorsMap.hasOwnProperty(url) ?
-        urlErrorsMap[url] :
-        url.replace('htm', 'php');
+    const getFilmographyUrl = url => ({}.hasOwnProperty.call(urlErrorsMap, url)
+        ? urlErrorsMap[url]
+        : url.replace('htm', 'php'));
 
     const parseDirector = html => {
         const [, name] = html.title.match(/TSPDT\s*-\s*(.+)'s Acclaimed/);
@@ -23,7 +24,7 @@
             pos: parseInt(el.querySelector('.csv_column_6').textContent, 10),
             year: parseInt(el.querySelector('.csv_column_2').textContent, 10),
             title: el.querySelector('.csv_column_3').textContent.trim(),
-            name
+            name,
         })).sort(sortByPos);
         if (!movies.length) {
             throw new Error(`Extracted 0 movies of ${name}`);
@@ -34,19 +35,14 @@
     };
 
     const sortByPos = (a, b) => {
-        if (!a.pos && !b.pos) {
-            return a.year - b.year;
-        } else if (!a.pos) {
-            return 1; // b before a
-        } else if (!b.pos) {
-            return -1; // a before b
-        } else {
-            return a.pos - b.pos;
-        }
+        if (!a.pos && !b.pos) return a.year - b.year;
+        if (!a.pos) return 1; // b before a
+        if (!b.pos) return -1; // a before b
+        return a.pos - b.pos;
     };
 
     const output = arr => 'Pos\tYear\tTitle\tDirector \n' + arr
-        .filter(el => el.pos > 1000 && el.pos <= 2000)
+        .filter(({ pos }) => pos > 1000 && pos <= 2000)
         .map(el => Object.values(el).join('\t'))
         .join('\n');
 
@@ -63,9 +59,11 @@
 
     const loadAll = async urls => {
         const movies = [];
-        for (let url of urls) {
+        for (const url of urls) {
+            // eslint-disable-next-line no-await-in-loop
             movies.push(...await loadMovies(url));
-        };
+        }
+
         movies.sort(sortByPos);
         console.log(output(movies));
     };
@@ -79,5 +77,5 @@
         .map(el => getFilmographyUrl(el.getAttribute('href')));
 
     loadAllParallel(urls);
-    // console.log(output(parseDirector(document))); // use on director pages
+    // console.log(output(parseDirector(document))); // use on director's filmography pages
 }
