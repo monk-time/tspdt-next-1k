@@ -2,12 +2,12 @@ import csv
 import inspect
 import random
 from collections import OrderedDict
+from collections.abc import Iterable
 from itertools import permutations
 from string import ascii_lowercase
-from typing import Iterable, List, Optional, Tuple
 
 
-def unique_ids():
+def unique_ids() -> list[str]:
     chars = ascii_lowercase + '2345678'  # 33 * 32 - 7 * 6 = 1014 possible ids
     ids = [p for p in map(''.join, permutations(chars, 2)) if not p.isdigit()]
     assert len(ids) == 1014
@@ -19,31 +19,41 @@ def unique_ids():
 class Movie:
     _free_ids = unique_ids()
 
-    def __init__(self, title: str, year: int,
-                 rby: Optional[int] = None, rank: Optional[int] = None):
+    def __init__(
+        self,
+        title: str,
+        year: int,
+        rby: int | None = None,
+        rank: int | None = None,
+    ):
         self.title = title
         if not isinstance(year, int):
-            raise ValueError(f'Year ({year}) for "{title}" must be an integer')
+            msg = f'Year ({year}) for "{title}" must be an integer'
+            raise TypeError(msg)
         self.year = year
         if rby is not None and not 1 <= rby <= 25:
-            raise ValueError(f'Invalid rank by year ({rby}) for "{title}" ({year})')
-        self.rby: Optional[int] = rby  # rank by year
+            msg = f'Invalid rank by year ({rby}) for "{title}" ({year})'
+            raise ValueError(msg)
+        self.rby: int | None = rby  # rank by year
         if rank is not None and not 1001 <= rank <= 2000:
-            raise ValueError(f'Invalid rank ({rank}) for "{title}" ({year})')
-        self.rank: Optional[int] = rank
+            msg = f'Invalid rank ({rank}) for "{title}" ({year})'
+            raise ValueError(msg)
+        self.rank: int | None = rank
 
-        # the following fields can only get default values during initialization
+        # these fields can only get default values during initialization
         self.id: str = self._free_ids.pop()
-        self.after: List[Movie] = []
-        self.before: List[Movie] = []
-        self.range: Optional[Tuple[int, int]] = None  # inclusive, set only for unranked movies
+        self.after: list[Movie] = []
+        self.before: list[Movie] = []
+        self.range: tuple[int, int] | None = (
+            None  # inclusive, set only for unranked movies
+        )
 
     @property
-    def after_ids(self) -> List[str]:
+    def after_ids(self) -> list[str]:
         return [m.id for m in self.after]
 
     @property
-    def before_ids(self) -> List[str]:
+    def before_ids(self) -> list[str]:
         return [m.id for m in self.before]
 
     def set_after(self, antecedent: 'Movie'):
@@ -55,30 +65,50 @@ class Movie:
             self.before.append(consequent)
 
     def __str__(self):
-        return f'#{self.id}: [{self.rby or "-":>2}, @{self.rank or "----"}, ' \
-               f'{self.after_ids!s:<10}..{self.before_ids!s:<10}] {self.year} - {self.title}'
+        return (
+            f'#{self.id}: [{self.rby or '-':>2}, @{self.rank or '----'}, '
+            f'{self.after_ids!s:<10}..{self.before_ids!s:<10}] '
+            f'{self.year} - {self.title}'
+        )
 
     def compact(self):
-        """A short string representation of the movie."""
-        return f'#{self.id} @{self.rank or "----"}'
+        """Get a short string representation of the movie."""
+        return f'#{self.id} @{self.rank or '----'}'
 
-    attr_to_field_map = OrderedDict(title='Title', year='Year', rby='Rank by year', rank='Rank',
-                                    res='Res', id='Hash', after_ids='After', before_ids='Before',
-                                    range='Range')
+    attr_to_field_map = OrderedDict(
+        title='Title',
+        year='Year',
+        rby='Rank by year',
+        rank='Rank',
+        res='Res',
+        id='Hash',
+        after_ids='After',
+        before_ids='Before',
+        range='Range',
+    )
     # keys that can be used for constructing a Movie instance
-    allowed_attrs: List[str] = inspect.getfullargspec(__init__).args[1:]
+    allowed_attrs: list[str] = inspect.getfullargspec(__init__).args[1:]
 
     def form_row(self):
-        """Prepare a movie for writing to a .csv file, preserving a proper field order.
-        Missing or falsy attributes are converted to '-'."""
-        return [getattr(self, k, '-') or '-' for k in self.attr_to_field_map.keys()]
+        """Prepare a movie for writing to a .csv file.
+
+        A proper field order is preserved.
+        Missing or falsy attributes are converted to '-'.
+        """
+        return [getattr(self, k, '-') or '-' for k in self.attr_to_field_map]
 
     @classmethod
     def from_row(cls, row: Iterable[str]):
-        """Reversed form_row: create a movie from a .csv row,
-        using only fields that can be used for constructing a Movie instance."""
-        kwargs = {k: v for k, v in zip(cls.attr_to_field_map.keys(), row)
-                  if k in cls.allowed_attrs}
+        """Create a movie from a .csv row.
+
+        Uses only fields that can be used for constructing a Movie instance.
+        Reversed form_row.
+        """
+        kwargs = {
+            k: v
+            for k, v in zip(cls.attr_to_field_map.keys(), row)
+            if k in cls.allowed_attrs
+        }
         for k in ['year', 'rby', 'rank']:
             kwargs[k] = int(kwargs[k]) if kwargs[k] != '-' else None
         return cls(**kwargs)
@@ -92,8 +122,7 @@ class MovieList:
         self.ranks = sorted(m.rank for m in self.movies if m.rank)
 
     def sort(self):
-        self.movies.sort(
-            key=lambda m: (m.year, m.rby or 99, m.rank or 9999))
+        self.movies.sort(key=lambda m: (m.year, m.rby or 99, m.rank or 9999))
 
     def write_to_file(self, path: str):
         with open(path, mode='w', encoding='utf-8') as f:
