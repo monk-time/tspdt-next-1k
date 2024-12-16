@@ -31,14 +31,18 @@ def consecutive_runs(it: Iterable[int]) -> list[list[int]]:
 
 
 def get_by_attr(objects: Iterable[T], attr: str, value) -> T:
-    """Find the first object with a given attribute set to value."""
+    """Find the first object with a given attribute set to value.
+
+    Raises:
+        ValueError: if none are found.
+    """
     res = next(
         o for o in objects if hasattr(o, attr) and getattr(o, attr) == value
     )
     if res is not None:
         return res
     msg = f'None of the given objects have {attr} set to {value}'
-    raise Exception(msg)
+    raise ValueError(msg)
 
 
 def count_in_range(it: Iterable[int], min_value: int, max_value: int) -> int:
@@ -58,18 +62,20 @@ def minmax_conseq_ranked_near_factory(
         A run consists of consecutively ranked movies that has the given movie.
         Example: if there are movies with ranks #10-13, this will return #13
         for any of them.
+
+        Raises:
+            ValueError: if the movie's rank can't be found.
         """
         if not m.rank:
             return m
         for run in runs:
             if m.rank in run:
-                if (
-                    m.rank == run[run_index]
-                ):  # m is the end of the run, no adjustment needed
+                if m.rank == run[run_index]:
+                    # m is the end of the run, no adjustment needed
                     return m
                 return get_by_attr(movies, 'rank', run[run_index])
         msg = f"Can't find rank {m.rank} in all ranks, this can't happen"
-        raise Exception(msg)
+        raise ValueError(msg)
 
     min_conseq_ranked_near = partial(minmax_conseq_ranked_near, run_index=0)
     max_conseq_ranked_near = partial(minmax_conseq_ranked_near, run_index=-1)
@@ -82,6 +88,9 @@ def set_bounds_by_year(movies: Iterable[Movie]):
     Based on yearly top-25s.
     Relies on MovieList being sorted by year, then by rby.
     Movies without rby should appear only after those with rby.
+
+    Raises:
+        ValueError: if rby conflicts with other movies.
     """
     movies_by_year: Iterable[tuple[int, Iterable[Movie]]] = itertools.groupby(
         movies, attrgetter('year')
@@ -175,9 +184,8 @@ def least_crowded_free_ranks(mlist: MovieList):
 
 
 def process_all():
-    mlist = MovieList.read_from_file(
-        'input.csv'
-    )  # load from cache for subsequent runs
+    # load from cache for subsequent runs
+    mlist = MovieList.read_from_file('input.csv')
     print(f'{mlist.count_ranked()} movies are ranked')
 
     set_bounds_by_year(mlist.movies)
@@ -190,5 +198,3 @@ def process_all():
 
 if __name__ == '__main__':
     process_all()
-    # TODO(monk-time): don't assume anything about movies not in yearly tops
-    # (years might have mistakes)

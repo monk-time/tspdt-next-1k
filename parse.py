@@ -12,6 +12,7 @@ import csv
 import re
 from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Mapping, MutableMapping
+from pathlib import Path
 
 from moviedata import Movie, MovieList
 from unidecode import unidecode
@@ -26,7 +27,7 @@ def parse_tsv(filename: str, row_modifier: Callable) -> list[dict]:
 
     Falsy rows are skipped.
     """
-    with open(filename, encoding='utf-16') as f:
+    with Path(filename).open(encoding='utf-16') as f:
         reader = csv.DictReader(f, dialect='excel-tab')
         return list(filter(None, map(row_modifier, reader)))
 
@@ -57,7 +58,7 @@ def mod_dirs(row: Mapping) -> OrderedDict:
 def prepare_yearly_file():
     """Rewrite the file with yearly Top-25s (groups often have wrong years)."""
     filler = '\t\t\t\t\t\n'
-    with open(PATH_YEARLY_TOP25, encoding='utf-16') as f:
+    with Path(PATH_YEARLY_TOP25).open(encoding='utf-16') as f:
         header = f.readline()
         groups = f.read().split(filler)
     group_items = lambda g: g.rstrip('\n').split('\n')
@@ -69,7 +70,7 @@ def prepare_yearly_file():
         '\n'.join(year + s[4:] for s in group_items(g)) + '\n'
         for g, year in zip(groups, years)
     )
-    with open(PATH_YEARLY_TOP25, mode='w', encoding='utf-16') as f:
+    with Path(PATH_YEARLY_TOP25).open(mode='w', encoding='utf-16') as f:
         f.write(header)
         f.write(filler.join(groups_updated))
 
@@ -111,7 +112,7 @@ def normalize_directors(s: str) -> str:
     Use a uniform separator between multiple names.
     """
     flip = lambda name: ' '.join(reversed(name.split(', ')))
-    return ' & '.join(map(flip, re.split(' & |/', s)))
+    return ' & '.join(map(flip, re.split(r' & |/', s)))
 
 
 ARTICLES = [
@@ -131,7 +132,7 @@ ARTICLES = [
     'o',
     'os',
 ]
-RE_TRAILING_ARTICLES = re.compile(f', (?:{'|'.join(ARTICLES)})$')
+RE_TRAILING_ARTICLES = re.compile(f', (?:{"|".join(ARTICLES)})$')
 RE_BRACKETED_SUFFIX = re.compile(r' \[[^\]]+\]$')
 
 
@@ -163,6 +164,9 @@ def collate(
     """Copy fields from a list of movies into matching movies in another list.
 
     Mutates rows in target.
+
+    Raises:
+        ValueError: if sources can't be fully collated.
     """
     remaining = target.copy()
     for src_row in source:

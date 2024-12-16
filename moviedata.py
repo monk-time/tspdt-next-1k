@@ -4,6 +4,7 @@ import random
 from collections import OrderedDict
 from collections.abc import Iterable
 from itertools import permutations
+from pathlib import Path
 from string import ascii_lowercase
 
 
@@ -66,14 +67,14 @@ class Movie:
 
     def __str__(self):
         return (
-            f'#{self.id}: [{self.rby or '-':>2}, @{self.rank or '----'}, '
+            f'#{self.id}: [{self.rby or "-":>2}, @{self.rank or "----"}, '
             f'{self.after_ids!s:<10}..{self.before_ids!s:<10}] '
             f'{self.year} - {self.title}'
         )
 
     def compact(self):
         """Get a short string representation of the movie."""
-        return f'#{self.id} @{self.rank or '----'}'
+        return f'#{self.id} @{self.rank or "----"}'
 
     attr_to_field_map = OrderedDict(
         title='Title',
@@ -125,14 +126,14 @@ class MovieList:
         self.movies.sort(key=lambda m: (m.year, m.rby or 99, m.rank or 9999))
 
     def write_to_file(self, path: str):
-        with open(path, mode='w', encoding='utf-8') as f:
+        with Path(path).open(mode='w', encoding='utf-8') as f:
             writer = csv.writer(f, dialect=csv.excel(), lineterminator='\n')
             writer.writerow(Movie.attr_to_field_map.values())
             writer.writerows(m.form_row() for m in self.movies)
 
     @classmethod
     def read_from_file(cls, path: str):
-        with open(path, encoding='utf-8') as f:
+        with Path(path).open(encoding='utf-8') as f:
             reader = csv.reader(f, dialect=csv.excel(), lineterminator='\n')
             next(reader)  # skip header
             return cls(map(Movie.from_row, reader))
